@@ -5176,9 +5176,11 @@ zpool_get_vdev_prop_value(nvlist_t *nvprop, vdev_prop_t prop, char *prop_name,
 			else if (intval == 1) /* VDEV_RATE_NON_ROTATING */
 				(void) snprintf(buf, len, "Non-Rotating");
 			else
-				(void) snprintf(buf, len, "%zu RPM", intval);
+				(void) snprintf(buf, len, "%llu RPM",
+				    (u_longlong_t)intval);
 		default:
-			(void) snprintf(buf, len, "%zu", intval);
+			(void) snprintf(buf, len, "%llu",
+			    (u_longlong_t)intval);
 		}
 		break;
 
