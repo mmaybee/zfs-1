@@ -866,6 +866,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 		    &vd->vdev_ms_shift);
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_ASIZE,
 		    &vd->vdev_asize);
+		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_NONALLOCATING,
+		    &vd->vdev_noalloc);
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_REMOVING,
 		    &vd->vdev_removing);
 		(void) nvlist_lookup_uint64(nv, ZPOOL_CONFIG_VDEV_TOP_ZAP,
@@ -1184,8 +1186,10 @@ vdev_top_transfer(vdev_t *svd, vdev_t *tvd)
 	ASSERT3P(tvd->vdev_indirect_mapping, ==, NULL);
 	ASSERT3P(tvd->vdev_indirect_births, ==, NULL);
 	ASSERT3P(tvd->vdev_obsolete_sm, ==, NULL);
+	ASSERT0(tvd->vdev_noalloc);
 	ASSERT0(tvd->vdev_removing);
 	ASSERT0(tvd->vdev_rebuilding);
+	tvd->vdev_noalloc = svd->vdev_noalloc;
 	tvd->vdev_removing = svd->vdev_removing;
 	tvd->vdev_rebuilding = svd->vdev_rebuilding;
 	tvd->vdev_rebuild_config = svd->vdev_rebuild_config;
@@ -1201,6 +1205,7 @@ vdev_top_transfer(vdev_t *svd, vdev_t *tvd)
 	svd->vdev_indirect_mapping = NULL;
 	svd->vdev_indirect_births = NULL;
 	svd->vdev_obsolete_sm = NULL;
+	svd->vdev_noalloc = 0;
 	svd->vdev_removing = 0;
 	svd->vdev_rebuilding = 0;
 
@@ -1499,11 +1504,11 @@ vdev_metaslab_init(vdev_t *vd, uint64_t txg)
 		spa_config_enter(spa, SCL_ALLOC, FTAG, RW_WRITER);
 
 	/*
-	 * If the vdev is being removed we don't activate
-	 * the metaslabs since we want to ensure that no new
-	 * allocations are performed on this device.
+	 * If the vdev is marked as non-allocating then don't
+	 * activate the metaslabs since we want to ensure that
+	 * no allocations are performed on this device.
 	 */
-	if (!expanding && !vd->vdev_removing) {
+	if (!expanding && !vd->vdev_noalloc) {
 		metaslab_group_activate(vd->vdev_mg);
 		if (vd->vdev_log_mg != NULL)
 			metaslab_group_activate(vd->vdev_log_mg);
@@ -4439,6 +4444,7 @@ vdev_get_stats_ex(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx)
 			vs->vs_fragmentation = (vd->vdev_mg != NULL) ?
 			    vd->vdev_mg->mg_fragmentation : 0;
 		}
+		vs->vs_noalloc = vd->vdev_noalloc;
 	}
 
 	vdev_get_stats_ex_impl(vd, vs, vsx);
@@ -5515,6 +5521,7 @@ vdev_prop_set(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 	nvpair_t *elem = NULL;
 	uint64_t vdev_guid;
 	nvlist_t *nvprops;
+	int error;
 
 	ASSERT(vd != NULL);
 
@@ -5527,7 +5534,7 @@ vdev_prop_set(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 
 #if 0
 	if ((error = vdev_prop_validate(spa, nvprops)) != 0)
-		return;
+		return (error);
 #endif
 
 	while ((elem = nvlist_next_nvpair(nvprops, elem)) != NULL) {
@@ -5537,15 +5544,13 @@ vdev_prop_set(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 		char *strval = NULL;
 
 		if (prop == VDEV_PROP_INVAL && !vdev_prop_user(propname)) {
-			intval = EINVAL;
-			vdev_prop_add_list(outnvl, propname, strval, intval, 0);
-			continue;
+			error = EINVAL;
+			goto end;
 		}
 
-		if (vdev_prop_readonly(prop) == B_TRUE) {
-			intval = EROFS;
-			vdev_prop_add_list(outnvl, propname, strval, intval, 0);
-			continue;
+		if (vdev_prop_readonly(prop)) {
+			error = EROFS;
+			goto end;
 		}
 
 		/* Special Processing */
@@ -5553,27 +5558,40 @@ vdev_prop_set(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 		case VDEV_PROP_PATH:
 			strval = vd->vdev_path;
 			if (strval == NULL)
-				intval = EROFS;
-			if (nvpair_type(elem) != DATA_TYPE_STRING)
-				intval = EINVAL;
-			if (intval == 0)
-				strval = fnvpair_value_string(elem);
+				error = EROFS;
+			else if (nvpair_type(elem) != DATA_TYPE_STRING)
+				error = EINVAL;
+			if (error != 0)
+				break;
+			strval = fnvpair_value_string(elem);
 			if (strval == NULL)
-				intval = EINVAL;
-			if (intval != 0) {
-				vdev_prop_add_list(outnvl, propname, strval,
-				    intval, 0);
-				continue;
-			}
+				error = EINVAL;
+			if (error != 0)
+				break;
 			spa_strfree(vd->vdev_path);
 			vd->vdev_path = spa_strdup(strval);
 			spa_config_enter(spa, SCL_CONFIG, FTAG, RW_WRITER);
 			vdev_config_dirty(vd->vdev_top);
 			spa_config_exit(spa, SCL_CONFIG, FTAG);
 			break;
+		case VDEV_PROP_NOALLOC:
+			intval = fnvpair_value_uint64(elem);
+			if (intval == vd->vdev_noalloc)
+				return (0); /* noop */
+			if (intval == 1)
+				error = spa_vdev_noalloc(spa, vdev_guid);
+			else
+				error = spa_vdev_alloc(spa, vdev_guid);
+			break;
 		default:
 			/* Most processing is done in vdev_sync_props */
 			break;
+		}
+end:
+		if (error != 0) {
+			intval = error;
+			vdev_prop_add_list(outnvl, propname, strval, intval, 0);
+			return (error);
 		}
 	}
 
