@@ -2963,8 +2963,8 @@ zfs_ioc_pool_get_props(zfs_cmd_t *zc)
  * outnvl: propname -> error code (int32)
  */
 static const zfs_ioc_key_t zfs_keys_vdev_set_props[] = {
-	{ZPOOL_VDEV_SET_PROPS_VDEV,	DATA_TYPE_UINT64,	0},
-	{ZPOOL_VDEV_SET_PROPS_PROPS,	DATA_TYPE_NVLIST,	0}
+	{ZPOOL_VDEV_PROPS_SET_VDEV,	DATA_TYPE_UINT64,	0},
+	{ZPOOL_VDEV_PROPS_SET_PROPS,	DATA_TYPE_NVLIST,	0}
 };
 
 static int
@@ -2976,7 +2976,7 @@ zfs_ioc_vdev_set_props(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
 	uint64_t vdev_guid;
 
 	/* Early validation */
-	if (nvlist_lookup_uint64(innvl, ZPOOL_VDEV_SET_PROPS_VDEV,
+	if (nvlist_lookup_uint64(innvl, ZPOOL_VDEV_PROPS_SET_VDEV,
 	    &vdev_guid) != 0)
 		return (SET_ERROR(EINVAL));
 
@@ -3006,8 +3006,8 @@ zfs_ioc_vdev_set_props(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
  * outnvl: propname -> value
  */
 static const zfs_ioc_key_t zfs_keys_vdev_get_props[] = {
-	{ZPOOL_VDEV_GET_PROPS_VDEV,	DATA_TYPE_UINT64,	0},
-	{ZPOOL_VDEV_GET_PROPS_PROPS,	DATA_TYPE_NVLIST,	ZK_OPTIONAL}
+	{ZPOOL_VDEV_PROPS_GET_VDEV,	DATA_TYPE_UINT64,	0},
+	{ZPOOL_VDEV_PROPS_GET_PROPS,	DATA_TYPE_NVLIST,	ZK_OPTIONAL}
 };
 
 static int
@@ -3019,7 +3019,7 @@ zfs_ioc_vdev_get_props(const char *poolname, nvlist_t *innvl, nvlist_t *outnvl)
 	uint64_t vdev_guid;
 
 	/* Early validation */
-	if (nvlist_lookup_uint64(innvl, ZPOOL_VDEV_GET_PROPS_VDEV,
+	if (nvlist_lookup_uint64(innvl, ZPOOL_VDEV_PROPS_GET_VDEV,
 	    &vdev_guid) != 0)
 		return (SET_ERROR(EINVAL));
 

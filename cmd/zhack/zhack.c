@@ -475,7 +475,6 @@ static int
 zhack_do_zap(int argc, char **argv)
 {
 	spa_t *spa;
-	objset_t *os;
 	uint64_t obj;
 	char *target;
 
@@ -494,9 +493,8 @@ zhack_do_zap(int argc, char **argv)
 	obj = strtoull(argv[1], NULL, 0);
 
 	zhack_spa_open(target, B_TRUE, FTAG, &spa);
-	os = spa->spa_meta_objset;
 
-	dump_obj(os, obj, argv[1]);
+	dump_obj(spa->spa_meta_objset, obj, argv[1]);
 
 	spa_close(spa, FTAG);
 
