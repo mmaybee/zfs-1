@@ -61,9 +61,22 @@ impl ZettaCacheIndex {
         }
     }
 
+    pub fn set_histogram_start(&mut self, start: usize) {
+        self.atime_histogram.set_start(start);
+    }
+
     pub fn append(&mut self, entry: IndexEntry) {
-        self.atime_histogram.insert(entry.value.atime);
+        self.atime_histogram.insert(entry.value);
         self.log.append(entry);
+    }
+
+    pub fn append_or_evict(&mut self, entry: IndexEntry) {
+        // Add this entry if it is still in history covered by the histogram
+        if entry.value.atime.0 as usize >= self.atime_histogram.get_start() {
+            self.append(entry);
+        }
+        // XXX - Note else case is not evict_block(). We are in
+        // the merge process and just need to free the space in the cache.
     }
 
     pub fn clear(&mut self) {
